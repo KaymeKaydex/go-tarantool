@@ -6,6 +6,7 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/niemeyer/pretty v0.0.0-20200227124842-a10e7caefd8e // indirect
 	github.com/shopspring/decimal v1.3.1
+	github.com/snksoft/crc v1.1.0
 	github.com/stretchr/testify v1.7.1
 	github.com/tarantool/go-iproto v1.0.0
 	github.com/tarantool/go-openssl v0.0.8-0.20231004103608-336ca939d2ca
