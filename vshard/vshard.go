@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/snksoft/crc"
-	"golang.org/x/sync/errgroup"
 
 	tarantool "github.com/tarantool/go-tarantool/v2"
 )
@@ -23,7 +22,7 @@ type Router struct {
 
 	mu               sync.Mutex
 	nameToReplicaset map[string]*Replicaset
-	routeMap         map[uint32]*Instance
+	routeMap         map[uint64]*Instance
 }
 
 type Config struct {
@@ -75,59 +74,54 @@ func NewRouter(ctx context.Context, cfg Config) (*Router, error) {
 		return nil, err
 	}
 
-	router := &Router{cfg: cfg}
-
-	errGr, ctx := errgroup.WithContext(ctx)
+	router := &Router{
+		cfg:              cfg,
+		mu:               sync.Mutex{},
+		nameToReplicaset: make(map[string]*Replicaset),
+		routeMap:         map[uint64]*Instance{},
+	}
 
 	for rsInfo, rsInstances := range cfg.Replicasets {
 		rsInfo := rsInfo
 		rsInstances := rsInstances
 
-		errGr.Go(func() error {
-			replicaset := &Replicaset{
-				mu: sync.Mutex{},
-				info: ReplicasetInfo{
-					Name: rsInfo.Name,
-					UUID: rsInfo.UUID,
-				},
+		replicaset := &Replicaset{
+			mu: sync.Mutex{},
+			info: ReplicasetInfo{
+				Name: rsInfo.Name,
+				UUID: rsInfo.UUID,
+			},
+		}
+
+		router.mu.Lock()
+		router.nameToReplicaset[rsInfo.Name] = replicaset
+		router.mu.Unlock()
+
+		for _, instance := range rsInstances {
+			dialer := tarantool.NetDialer{
+				Address:  instance.Addr,
+				User:     cfg.User,
+				Password: cfg.Password,
+			}
+			conn, err := tarantool.Connect(ctx, dialer, tarantool.Opts{Timeout: cfg.Timeout})
+			if err != nil {
+				return nil, err
 			}
 
-			router.mu.Lock()
-			router.nameToReplicaset[rsInfo.Name] = replicaset
-			router.mu.Unlock()
-
-			for _, instance := range rsInstances {
-				dialer := tarantool.NetDialer{
-					Address:  instance.Addr,
-					User:     cfg.User,
-					Password: cfg.Password,
-				}
-				conn, err := tarantool.Connect(ctx, dialer, tarantool.Opts{Timeout: cfg.Timeout})
-				if err != nil {
-					return err
-				}
-
-				inst := &Instance{
-					Addr: instance.Addr,
-					conn: conn,
-				}
-
-				replicaset.Instances = append(replicaset.Instances, inst)
-
-				if instance.IsMaster {
-					replicaset.master = inst
-				}
+			inst := &Instance{
+				Addr: instance.Addr,
+				conn: conn,
 			}
-			return nil
-		})
+
+			replicaset.addInstance(inst)
+
+			if instance.IsMaster {
+				replicaset.master = inst
+			}
+		}
 	}
 
-	err = errGr.Wait()
-	if err != nil {
-		return nil, err
-	}
-
-	err = router.DiscoveryBuckets()
+	err = router.DiscoveryBuckets(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -135,21 +129,25 @@ func NewRouter(ctx context.Context, cfg Config) (*Router, error) {
 	return router, err
 }
 
-func (r *Router) DiscoveryBuckets() error {
+func (r *Router) DiscoveryBuckets(ctx context.Context) error {
+
 	for _, rs := range r.nameToReplicaset {
 		rsMaster := rs.master
 
-		bucketsInRs := make([]uint32, 0)
+		bucketsInRs := make([]uint64, 0)
 
-		err := rsMaster.conn.Do(tarantool.NewCallRequest("vshard.storage.buckets_discovery")).
-			GetTyped(&[]interface{}{bucketsInRs})
+		future := rsMaster.conn.Do(tarantool.NewCallRequest("vshard.storage.buckets_discovery").Args([]interface{}{}))
+
+		err := future.GetTyped(&[]interface{}{&bucketsInRs})
 		if err != nil {
 			return err
 		}
 
+		r.mu.Lock()
 		for _, bucket := range bucketsInRs {
-			r.routeMap[bucket] = rsMaster
+			r.routeMap[uint64(bucket)] = rsMaster
 		}
+		r.mu.Unlock()
 	}
 
 	return nil
@@ -168,11 +166,6 @@ func prepareCfg(cfg Config) (Config, error) {
 	if cfg.Timeout == 0 {
 		cfg.Timeout = DefaultTimeout
 		cfg.Logger.Warn("empty config timeout, using default timeout: " + DefaultTimeout.String())
-	}
-
-	if cfg.User == "" {
-		cfg.User = "guest"
-		cfg.Logger.Warn("empty config user, using default user: guest")
 	}
 
 	return cfg, nil
@@ -209,8 +202,8 @@ func validateCfg(cfg Config) error {
 	return nil
 }
 
-func (r *Router) BucketResolve() {
-
+func (r *Router) BucketResolve(bucketID uint64) *Instance {
+	return r.routeMap[bucketID]
 }
 
 // RouterBucketID  return the bucket identifier from the parameter used for sharding
