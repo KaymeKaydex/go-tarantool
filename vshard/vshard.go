@@ -22,7 +22,7 @@ type Router struct {
 
 	mu               sync.Mutex
 	nameToReplicaset map[string]*Replicaset
-	routeMap         map[uint64]*Instance
+	routeMap         []*Instance
 }
 
 type Config struct {
@@ -78,7 +78,7 @@ func NewRouter(ctx context.Context, cfg Config) (*Router, error) {
 		cfg:              cfg,
 		mu:               sync.Mutex{},
 		nameToReplicaset: make(map[string]*Replicaset),
-		routeMap:         map[uint64]*Instance{},
+		routeMap:         make([]*Instance, cfg.TotalBucketCount+1),
 	}
 
 	for rsInfo, rsInstances := range cfg.Replicasets {
@@ -130,7 +130,6 @@ func NewRouter(ctx context.Context, cfg Config) (*Router, error) {
 }
 
 func (r *Router) DiscoveryBuckets(ctx context.Context) error {
-
 	for _, rs := range r.nameToReplicaset {
 		rsMaster := rs.master
 
@@ -145,7 +144,7 @@ func (r *Router) DiscoveryBuckets(ctx context.Context) error {
 
 		r.mu.Lock()
 		for _, bucket := range bucketsInRs {
-			r.routeMap[uint64(bucket)] = rsMaster
+			r.routeMap[bucket] = rsMaster
 		}
 		r.mu.Unlock()
 	}
