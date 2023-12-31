@@ -135,7 +135,7 @@ func (r *Router) DiscoveryBuckets(ctx context.Context) error {
 
 		bucketsInRs := make([]uint64, 0)
 
-		future := rsMaster.conn.Do(tarantool.NewCallRequest("vshard.storage.buckets_discovery").Args([]interface{}{}))
+		future := rsMaster.conn.Do(tarantool.NewCallRequest("vshard.storage.buckets_discovery").Context(ctx).Args([]interface{}{}))
 
 		err := future.GetTyped(&[]interface{}{&bucketsInRs})
 		if err != nil {
@@ -208,10 +208,14 @@ func (r *Router) BucketResolve(bucketID uint64) *Instance {
 // RouterBucketID  return the bucket identifier from the parameter used for sharding
 // Deprecated: RouterBucketID() is deprecated, use RouterBucketIDStrCRC32() RouterBucketIDMPCRC32() instead
 func (r *Router) RouterBucketID(shardKey string) uint64 {
-	return RouterBucketIDStrCRC32(shardKey, r.cfg.TotalBucketCount)
+	return BucketIDStrCRC32(shardKey, r.cfg.TotalBucketCount)
 }
 
-func RouterBucketIDStrCRC32(shardKey string, totalBucketCount uint64) uint64 {
+func (r *Router) RouterBucketIDStrCRC32(shardKey string) uint64 {
+	return BucketIDStrCRC32(shardKey, r.cfg.TotalBucketCount)
+}
+
+func BucketIDStrCRC32(shardKey string, totalBucketCount uint64) uint64 {
 	return crc.CalculateCRC(&crc.Parameters{
 		Width:      32,
 		Polynomial: 0x1EDC6F41,

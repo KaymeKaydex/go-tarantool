@@ -53,6 +53,6 @@ func TestNewRouter_InstanceAddr(t *testing.T) {
 
 func TestRouterBucketIDStrCRC32(t *testing.T) {
 	// required values from tarantool example
-	require.Equal(t, uint64(103202), RouterBucketIDStrCRC32("2707623829", uint64(256000)))
-	require.Equal(t, uint64(35415), RouterBucketIDStrCRC32("2706201716", uint64(256000)))
+	require.Equal(t, uint64(103202), BucketIDStrCRC32("2707623829", uint64(256000)))
+	require.Equal(t, uint64(35415), BucketIDStrCRC32("2706201716", uint64(256000)))
 }
