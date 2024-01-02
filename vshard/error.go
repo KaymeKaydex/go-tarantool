@@ -1,11 +1,17 @@
 package vshard
 
+import "fmt"
+
 // equal to https://github.com/tarantool/vshard/blob/master/vshard/error.lua
 
 type Error struct {
 	Name string
 	Msg  string
 	Args []string
+}
+
+func (e Error) Error() string {
+	return fmt.Sprintf("%s: %s with args %s", e.Name, e.Msg, e.Args) // todo: fix errors wrapping
 }
 
 var Errors = map[int]Error{
@@ -205,4 +211,17 @@ var Errors = map[int]Error{
 		Msg:  "Mismatch server name: expected \"%s\", but got \"%s\"",
 		Args: []string{"expected_name", "actual_name"},
 	},
+}
+
+type BucketStatError struct {
+	BucketID uint64 `msgpack:"bucket_id"`
+	Reason   string `msgpack:"reason"`
+	Code     int    `msgpack:"code"`
+	Type     string `msgpack:"type"`
+	Message  string `msgpack:"message"`
+	Name     string `msgpack:"name"`
+}
+
+func (bse BucketStatError) Error() string {
+	return "todo"
 }
