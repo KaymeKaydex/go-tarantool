@@ -385,30 +385,31 @@ func (r *Router) DiscoveryHandleBuckets(rs *Replicaset, buckets []uint64) {
 
 // RouterCallImpl Perform shard operation function will restart operation
 // after wrong bucket response until timeout is reached
-func (r *Router) RouterCallImpl(bucketID uint64, mode string, preferReplica, balance bool, fnc string, args, opts interface{}) {
+func (r *Router) RouterCallImpl(bucketID uint64, mode string, preferReplica, balance bool, fnc string, args, opts interface{}) error {
 	// todo
+	return nil
 }
 
 // Wrappers for router_call with preset mode.
 
-func (r *Router) RouterCallRO(bucketID uint64, mode string, preferReplica, balance bool, fnc string, args, opts interface{}) {
-	r.RouterCallImpl(bucketID, "read", false, false, fnc, args, opts)
+func (r *Router) RouterCallRO(bucketID uint64, mode string, preferReplica, balance bool, fnc string, args, opts interface{}) error {
+	return r.RouterCallImpl(bucketID, "read", false, false, fnc, args, opts)
 }
 
-func (r *Router) RouterCallBRO(bucketID uint64, fnc string, args, opts interface{}) {
-	r.RouterCallImpl(bucketID, "read", false, true, fnc, args, opts)
+func (r *Router) RouterCallBRO(bucketID uint64, fnc string, args, opts interface{}) error {
+	return r.RouterCallImpl(bucketID, "read", false, true, fnc, args, opts)
 }
 
-func (r *Router) RouterCallRW(bucketID uint64, fnc string, args, opts interface{}) {
-	r.RouterCallImpl(bucketID, "write", false, false, fnc, args, opts)
+func (r *Router) RouterCallRW(bucketID uint64, fnc string, args, opts interface{}) error {
+	return r.RouterCallImpl(bucketID, "write", false, false, fnc, args, opts)
 }
 
-func (r *Router) RouterCallRE(bucketID uint64, fnc string, args, opts interface{}) {
-	r.RouterCallImpl(bucketID, "read", true, false, fnc, args, opts)
+func (r *Router) RouterCallRE(bucketID uint64, fnc string, args, opts interface{}) error {
+	return r.RouterCallImpl(bucketID, "read", true, false, fnc, args, opts)
 }
 
-func (r *Router) RouterCallBRE(bucketID uint64, fnc string, args, opts interface{}) {
-	r.RouterCallImpl(bucketID, "read", true, true, fnc, args, opts)
+func (r *Router) RouterCallBRE(bucketID uint64, fnc string, args, opts interface{}) error {
+	return r.RouterCallImpl(bucketID, "read", true, true, fnc, args, opts)
 }
 
 // todo: router_call
