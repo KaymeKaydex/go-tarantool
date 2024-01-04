@@ -7,9 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/snksoft/crc"
-
 	"github.com/mitchellh/mapstructure"
+	"github.com/snksoft/crc"
 
 	tarantool "github.com/tarantool/go-tarantool/v2"
 )
@@ -24,15 +23,28 @@ type Router struct {
 	idToReplicaset   map[uuid.UUID]*Replicaset
 	routeMap         []*Replicaset
 	knownBucketCount int
+
+	cancelDiscovery func()
 }
 
 func (r *Router) Log() LogProvider {
 	return r.cfg.Logger
 }
 
+type DiscoveryMode int
+
+const (
+	// DiscoveryModeOn is cron discovery with cron timeout
+	DiscoveryModeOn DiscoveryMode = iota
+	DiscoveryModeOnce
+)
+
 type Config struct {
 	Logger      LogProvider
 	Replicasets map[ReplicasetInfo][]InstanceInfo
+
+	DiscoveryTimeout time.Duration
+	DiscoveryMode    DiscoveryMode
 
 	IsMasterAuto     bool
 	TotalBucketCount uint64
@@ -103,6 +115,10 @@ type Instance struct {
 	conn *tarantool.Connection
 }
 
+// --------------------------------------------------------------------------------
+// -- Configuration
+// --------------------------------------------------------------------------------
+
 func NewRouter(ctx context.Context, cfg Config) (*Router, error) {
 	var err error
 
@@ -156,40 +172,25 @@ func NewRouter(ctx context.Context, cfg Config) (*Router, error) {
 		}
 	}
 
-	err = router.DiscoveryBuckets(ctx)
+	err = router.DiscoveryAllBuckets(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	return router, err
-}
+	if cfg.DiscoveryMode == DiscoveryModeOn {
+		discoveryCronCtx, cancelFunc := context.WithCancel(context.Background())
 
-func (r *Router) DiscoveryBuckets(ctx context.Context) error {
-	routeMap := make([]*Replicaset, r.cfg.TotalBucketCount+1)
-	knownBucket := 0
+		go func() {
+			discoveryErr := router.StartCronDiscovery(discoveryCronCtx)
+			if discoveryErr != nil {
+				router.Log().Error(fmt.Sprintf("error when run cron discovery: %s", discoveryErr))
+			}
+		}()
 
-	for _, rs := range r.idToReplicaset {
-		rsMaster := rs.master
-
-		bucketsInRs := make([]uint64, 0)
-
-		future := rsMaster.conn.Do(tarantool.NewCallRequest("vshard.storage.buckets_discovery").Context(ctx).Args([]interface{}{}))
-
-		err := future.GetTyped(&[]interface{}{&bucketsInRs})
-		if err != nil {
-			return err
-		}
-
-		for _, bucket := range bucketsInRs {
-			routeMap[bucket] = rs
-			knownBucket++
-		}
+		router.cancelDiscovery = cancelFunc
 	}
 
-	r.routeMap = routeMap
-	r.knownBucketCount = knownBucket
-
-	return nil
+	return router, err
 }
 
 // BucketSet Set a bucket to a replicaset.
@@ -286,174 +287,10 @@ func validateCfg(cfg Config) error {
 }
 
 // --------------------------------------------------------------------------------
-// -- Discovery
+// -- Master search
 // --------------------------------------------------------------------------------
 
-// BucketDiscovery search bucket in whole cluster
-func (r *Router) BucketDiscovery(ctx context.Context, bucketID uint64) (*Replicaset, error) {
-	rs := r.routeMap[bucketID]
-	if rs != nil {
-		return rs, nil
-	}
-
-	r.cfg.Logger.Info(fmt.Sprintf("Discovering bucket %d", bucketID))
-
-	// todo: async and wrap all errors
-	for rsID, rs := range r.idToReplicaset {
-		_, err := rs.BucketStat(ctx, bucketID)
-		if err == nil {
-			return r.BucketSet(bucketID, rsID)
-		}
-	}
-
-	/*
-	   -- All replicasets were scanned, but a bucket was not
-	   -- found anywhere, so most likely it does not exist. It
-	   -- can be wrong, if rebalancing is in progress, and a
-	   -- bucket was found to be RECEIVING on one replicaset, and
-	   -- was not found on other replicasets (it was sent during
-	   -- discovery).
-	*/
-
-	return nil, Errors[9] // NO_ROUTE_TO_BUCKET
-}
-
-// BucketResolve resolve bucket id to replicaset
-func (r *Router) BucketResolve(ctx context.Context, bucketID uint64) (*Replicaset, error) {
-	rs := r.routeMap[bucketID]
-	if rs != nil {
-		return rs, nil
-	}
-
-	// Replicaset removed from cluster, perform discovery
-	rs, err := r.BucketDiscovery(ctx, bucketID)
-	if err != nil {
-		return nil, err
-	}
-
-	return rs, nil
-}
-
-// DiscoveryHandleBuckets arrange downloaded buckets to the route map so as they reference a given replicaset.
-func (r *Router) DiscoveryHandleBuckets(rs *Replicaset, buckets []uint64) {
-	count := rs.bucketCount
-	affected := make(map[*Replicaset]int)
-
-	for _, bucketID := range buckets {
-		oldRs := r.routeMap[bucketID]
-
-		if oldRs != rs {
-			count++
-
-			if oldRs != nil {
-				bc := oldRs.bucketCount
-
-				if _, exists := affected[oldRs]; !exists {
-					affected[oldRs] = bc
-				}
-
-				oldRs.bucketCount = bc - 1
-			} else {
-				//                 router.known_bucket_count = router.known_bucket_count + 1
-				r.knownBucketCount++
-			}
-			r.routeMap[bucketID] = rs
-		}
-	}
-
-	if count != rs.bucketCount {
-		r.cfg.Logger.Info(fmt.Sprintf("Updated %s buckets: was %d, became %d", rs.info.Name, rs.bucketCount, count))
-	}
-
-	rs.bucketCount = count
-
-	for rs, oldBucketCount := range affected {
-		r.Log().Info(fmt.Sprintf("Affected buckets of %s: was %d, became %d", rs.info.Name, oldBucketCount, rs.bucketCount))
-	}
-}
-
-// todo: discovery_service_f
-// todo: discovery_f
-// todo: discovery_wakeup
-// todo: discovery_set
-
-// --------------------------------------------------------------------------------
-// -- API
-// --------------------------------------------------------------------------------
-
-// vshard_future_tostring - is useless for golang
-
-// RouterCallImpl Perform shard operation function will restart operation
-// after wrong bucket response until timeout is reached
-func (r *Router) RouterCallImpl(bucketID uint64, mode string, preferReplica, balance bool, fnc string, args, opts interface{}) error {
-	// todo
-	return nil
-}
-
-// Wrappers for router_call with preset mode.
-
-func (r *Router) RouterCallRO(bucketID uint64, mode string, preferReplica, balance bool, fnc string, args, opts interface{}) error {
-	return r.RouterCallImpl(bucketID, "read", false, false, fnc, args, opts)
-}
-
-func (r *Router) RouterCallBRO(bucketID uint64, fnc string, args, opts interface{}) error {
-	return r.RouterCallImpl(bucketID, "read", false, true, fnc, args, opts)
-}
-
-func (r *Router) RouterCallRW(bucketID uint64, fnc string, args, opts interface{}) error {
-	return r.RouterCallImpl(bucketID, "write", false, false, fnc, args, opts)
-}
-
-func (r *Router) RouterCallRE(bucketID uint64, fnc string, args, opts interface{}) error {
-	return r.RouterCallImpl(bucketID, "read", true, false, fnc, args, opts)
-}
-
-func (r *Router) RouterCallBRE(bucketID uint64, fnc string, args, opts interface{}) error {
-	return r.RouterCallImpl(bucketID, "read", true, true, fnc, args, opts)
-}
-
-// todo: router_call
-// todo: router_map_callrw
-
-// RouterRoute get replicaset object by bucket identifier.
-// alias to BucketResolve
-func (r *Router) RouterRoute(ctx context.Context, bucketID uint64) (*Replicaset, error) {
-	return r.BucketResolve(ctx, bucketID)
-}
-
-// RouterRouteAll return map of all replicasets.
-func (r *Router) RouterRouteAll() map[uuid.UUID]*Replicaset {
-	return r.idToReplicaset
-}
-
-// --------------------------------------------------------------------------------
-// -- Failover
-// --------------------------------------------------------------------------------
-
-// todo: failover_ping_round
-// todo: failover_need_down_priority
-// todo: failover_need_up_priority
-// todo: failover_collect_to_update
-// todo: failover_step
-// todo: failover_service_f
-// todo: failover_f
-
-// --------------------------------------------------------------------------------
-// -- Failover
-// --------------------------------------------------------------------------------
-
-// todo: master_search_step
-// todo: master_search_service_f
-// todo: master_search_f
-// todo: master_search_set
-// todo: master_search_wakeup
-
-// --------------------------------------------------------------------------------
-// -- Configuration
-// --------------------------------------------------------------------------------
-
-// todo: router_cfg
-// todo: router_cfg_fiber_safe
+// todo
 
 // --------------------------------------------------------------------------------
 // -- Bootstrap
