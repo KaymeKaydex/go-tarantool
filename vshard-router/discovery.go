@@ -21,7 +21,7 @@ func (r *Router) BucketDiscovery(ctx context.Context, bucketID uint64) (*Replica
 		return rs, nil
 	}
 
-	r.cfg.Logger.Info(fmt.Sprintf("Discovering bucket %d", bucketID))
+	r.cfg.Logger.Info(ctx, fmt.Sprintf("Discovering bucket %d", bucketID))
 
 	// todo: async and wrap all errors
 	for rsID, rs := range r.idToReplicaset {
@@ -60,7 +60,7 @@ func (r *Router) BucketResolve(ctx context.Context, bucketID uint64) (*Replicase
 }
 
 // DiscoveryHandleBuckets arrange downloaded buckets to the route map so as they reference a given replicaset.
-func (r *Router) DiscoveryHandleBuckets(rs *Replicaset, buckets []uint64) {
+func (r *Router) DiscoveryHandleBuckets(ctx context.Context, rs *Replicaset, buckets []uint64) {
 	count := rs.bucketCount
 	affected := make(map[*Replicaset]int)
 
@@ -87,13 +87,13 @@ func (r *Router) DiscoveryHandleBuckets(rs *Replicaset, buckets []uint64) {
 	}
 
 	if count != rs.bucketCount {
-		r.cfg.Logger.Info(fmt.Sprintf("Updated %s buckets: was %d, became %d", rs.info.Name, rs.bucketCount, count))
+		r.cfg.Logger.Info(ctx, fmt.Sprintf("Updated %s buckets: was %d, became %d", rs.info.Name, rs.bucketCount, count))
 	}
 
 	rs.bucketCount = count
 
 	for rs, oldBucketCount := range affected {
-		r.Log().Info(fmt.Sprintf("Affected buckets of %s: was %d, became %d", rs.info.Name, oldBucketCount, rs.bucketCount))
+		r.Log().Info(ctx, fmt.Sprintf("Affected buckets of %s: was %d, became %d", rs.info.Name, oldBucketCount, rs.bucketCount))
 	}
 }
 
@@ -145,7 +145,7 @@ func (r *Router) StartCronDiscovery(ctx context.Context) error {
 	case <-time.After(r.cfg.DiscoveryTimeout):
 		err := r.DiscoveryAllBuckets(ctx)
 		if err != nil {
-			r.Log().Error(fmt.Sprintf("cant do cron discovery with error: %s", err))
+			r.Log().Error(ctx, fmt.Sprintf("cant do cron discovery with error: %s", err))
 		}
 	}
 

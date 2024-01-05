@@ -122,7 +122,7 @@ type Instance struct {
 func NewRouter(ctx context.Context, cfg Config) (*Router, error) {
 	var err error
 
-	cfg, err = prepareCfg(cfg)
+	cfg, err = prepareCfg(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +183,7 @@ func NewRouter(ctx context.Context, cfg Config) (*Router, error) {
 		go func() {
 			discoveryErr := router.StartCronDiscovery(discoveryCronCtx)
 			if discoveryErr != nil {
-				router.Log().Error(fmt.Sprintf("error when run cron discovery: %s", discoveryErr))
+				router.Log().Error(ctx, fmt.Sprintf("error when run cron discovery: %s", discoveryErr))
 			}
 		}()
 
@@ -237,7 +237,7 @@ func (r *Router) RouteMapClean() {
 
 }
 
-func prepareCfg(cfg Config) (Config, error) {
+func prepareCfg(ctx context.Context, cfg Config) (Config, error) {
 	err := validateCfg(cfg)
 	if err != nil {
 		return Config{}, fmt.Errorf("%v: %v", ErrInvalidConfig, err)
@@ -249,7 +249,7 @@ func prepareCfg(cfg Config) (Config, error) {
 
 	if cfg.Timeout == 0 {
 		cfg.Timeout = DefaultTimeout
-		cfg.Logger.Warn("empty config timeout, using default timeout: " + DefaultTimeout.String())
+		cfg.Logger.Warn(ctx, "empty config timeout, using default timeout: "+DefaultTimeout.String())
 	}
 
 	return cfg, nil

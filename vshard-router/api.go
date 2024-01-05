@@ -107,7 +107,7 @@ func (r *Router) RouterCallImpl(ctx context.Context,
 
 			err = mapstructure.Decode(resp.Data[1], vshardErr)
 			if err != nil {
-				r.Log().Error(fmt.Sprintf("cant decode vhsard err by trarantool with err: %s", err))
+				r.Log().Error(ctx, fmt.Sprintf("cant decode vhsard err by trarantool with err: %s", err))
 				continue
 			}
 
