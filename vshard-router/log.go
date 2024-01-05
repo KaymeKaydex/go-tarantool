@@ -1,4 +1,4 @@
-package vshard
+package vshard_router
 
 type LogProvider interface {
 	Info(string)
