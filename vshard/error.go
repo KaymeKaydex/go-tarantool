@@ -2,12 +2,23 @@ package vshard
 
 import "fmt"
 
+var nameToError = map[string]Error{}
+
 // equal to https://github.com/tarantool/vshard/blob/master/vshard/error.lua
+func init() {
+	for _, err := range Errors {
+		nameToError[err.Name] = err
+	}
+}
 
 type Error struct {
 	Name string
 	Msg  string
 	Args []string
+}
+
+func ErrorByName(name string) Error {
+	return nameToError[name]
 }
 
 func (e Error) Error() string {
