@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -61,14 +62,34 @@ type ReplicasetInfo struct {
 type Replicaset struct {
 	Instances []*Instance
 
-	info        ReplicasetInfo
-	master      *Instance
+	info   ReplicasetInfo
+	master *Instance
+	mu     sync.Mutex
+
 	bucketCount int
 }
 
 type BucketStatInfo struct {
 	BucketID uint64 `mapstructure:"id"`
 	Status   string `mapstructure:"status"`
+}
+
+func (rs *Replicaset) updateMaster(to uuid.UUID) error {
+	if rs.master.UUID == to {
+		return fmt.Errorf("rs master and promote master is equal")
+	}
+
+	for _, inst := range rs.Instances {
+		if inst.UUID == to {
+			rs.mu.Lock()
+			rs.master = inst
+			rs.mu.Unlock()
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("cant find %s replica in replicaset %s", to, rs.info.Name)
 }
 
 func (rs *Replicaset) BucketStat(ctx context.Context, bucketID uint64) (BucketStatInfo, error) {
@@ -145,6 +166,7 @@ func NewRouter(ctx context.Context, cfg Config) (*Router, error) {
 				Name: rsInfo.Name,
 				UUID: rsInfo.UUID,
 			},
+			mu:          sync.Mutex{},
 			bucketCount: 0,
 		}
 

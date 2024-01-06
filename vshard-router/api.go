@@ -39,12 +39,14 @@ func (s StorageCallAssertError) Error() string {
 }
 
 type StorageCallVShardError struct {
-	BucketID uint64 `msgpack:"bucket_id" mapstructure:"bucket_id"`
-	Reason   string `msgpack:"reason"`
-	Code     int    `msgpack:"code"`
-	Type     string `msgpack:"type"`
-	Message  string `msgpack:"message"`
-	Name     string `msgpack:"name"`
+	BucketID       uint64  `msgpack:"bucket_id" mapstructure:"bucket_id"`
+	Reason         string  `msgpack:"reason"`
+	Code           int     `msgpack:"code"`
+	Type           string  `msgpack:"type"`
+	Message        string  `msgpack:"message"`
+	Name           string  `msgpack:"name"`
+	MasterUUID     *string `msgpack:"master_uuid" mapstructure:"master_uuid"`         // mapstructure cant decode to source uuid type
+	ReplicasetUUID *string `msgpack:"replicaset_uuid" mapstructure:"replicaset_uuid"` // mapstructure cant decode to source uuid type
 }
 
 func (s StorageCallVShardError) Error() string {
@@ -53,26 +55,39 @@ func (s StorageCallVShardError) Error() string {
 
 type StorageResultTypedFunc = func(result interface{}) error
 
+type CallOpts struct {
+	Balance       bool // todo:  now is useless
+	Mode          CallMode
+	PreferReplica bool // todo: now is useless
+	Timeout       time.Duration
+}
+
+const CallTimeoutMin = time.Second / 2
+
 // RouterCallImpl Perform shard operation function will restart operation
 // after wrong bucket response until timeout is reached
 // todo: now we ignore mode/preferReplica/balance and use only master node for rs
 func (r *Router) RouterCallImpl(ctx context.Context,
 	bucketID uint64,
-	mode CallMode,
+	opts CallOpts,
 	fnc string,
 	args interface{}) (interface{}, StorageResultTypedFunc, error) {
 	if bucketID > r.cfg.TotalBucketCount {
 		return nil, nil, fmt.Errorf("bucket is unreachable: bucket id is out of range")
 	}
 
-	timeout := time.Second * 10 // todo: add timeout to opts
+	if opts.Timeout == 0 {
+		opts.Timeout = CallTimeoutMin
+	}
+
+	timeout := opts.Timeout
 	timeStart := time.Now()
 
 	req := tarantool.NewCallRequest("vshard.storage.call")
 	req = req.Context(ctx)
 	req = req.Args([]interface{}{
-		bucketID, //todo: remove after resharding test
-		mode.String(),
+		bucketID,
+		opts.Mode.String(),
 		fnc,
 		args,
 	})
@@ -90,7 +105,9 @@ func (r *Router) RouterCallImpl(ctx context.Context,
 			continue
 		}
 
-		future := rs.master.conn.Do(req)
+		master := rs.master
+
+		future := master.conn.Do(req)
 
 		resp, err := future.Get()
 		if err != nil {
@@ -112,6 +129,38 @@ func (r *Router) RouterCallImpl(ctx context.Context,
 			}
 
 			err = vshardErr
+
+			if vshardErr.Name == "WRONG_BUCKET" ||
+				vshardErr.Name == "BUCKET_IS_LOCKED" ||
+				vshardErr.Name == "TRANSFER_IS_IN_PROGRESS" {
+				r.BucketReset(bucketID)
+				continue
+			}
+
+			if r.cfg.IsMasterAuto { // if master auto we need to use master in error response
+				sourceErr, errExists := nameToError[vshardErr.Name]
+				if !errExists { // some code error - need fix
+					r.Log().Error(ctx, fmt.Sprintf("cant get error by name %s, need library fix", vshardErr.Name))
+					continue
+				}
+
+				if sourceErr.Name == Errors[2].Name { // if NON-MASTER
+					var updateMasterErr error
+
+					newMasterUUID, updateMasterErr := uuid.Parse(*vshardErr.MasterUUID)
+					if updateMasterErr != nil {
+						r.Log().Error(ctx, fmt.Sprintf("cant parse new master uuid with err: %s", updateMasterErr))
+					}
+
+					updateMasterErr = rs.updateMaster(newMasterUUID)
+					if updateMasterErr != nil {
+						r.Log().Error(ctx, fmt.Sprintf("cant update master with err: %s", updateMasterErr))
+					}
+
+					continue
+				}
+			}
+
 			continue
 		}
 
@@ -143,34 +192,28 @@ func (r *Router) RouterCallImpl(ctx context.Context,
 // Wrappers for router_call with preset mode.
 
 func (r *Router) RouterCallRO(ctx context.Context, bucketID uint64, fnc string, args interface{}) (interface{}, StorageResultTypedFunc, error) {
-	return r.RouterCallImpl(ctx, bucketID, "read", fnc, args)
+	return r.RouterCallImpl(ctx, bucketID, CallOpts{Mode: ReadMode}, fnc, args)
 }
 
 func (r *Router) RouterCallBRO(ctx context.Context, bucketID uint64, fnc string, args interface{}) (interface{}, StorageResultTypedFunc, error) {
-	return r.RouterCallImpl(ctx, bucketID, "read", fnc, args)
+	return r.RouterCallImpl(ctx, bucketID, CallOpts{Mode: ReadMode}, fnc, args)
 }
 
 func (r *Router) RouterCallRW(ctx context.Context, bucketID uint64, fnc string, args interface{}) (interface{}, StorageResultTypedFunc, error) {
-	return r.RouterCallImpl(ctx, bucketID, "write", fnc, args)
+	return r.RouterCallImpl(ctx, bucketID, CallOpts{Mode: WriteMode}, fnc, args)
 }
 
 func (r *Router) RouterCallRE(ctx context.Context, bucketID uint64, fnc string, args interface{}) (interface{}, StorageResultTypedFunc, error) {
-	return r.RouterCallImpl(ctx, bucketID, "read", fnc, args)
+	return r.RouterCallImpl(ctx, bucketID, CallOpts{Mode: ReadMode}, fnc, args)
 }
 
 func (r *Router) RouterCallBRE(ctx context.Context, bucketID uint64, fnc string, args interface{}) (interface{}, StorageResultTypedFunc, error) {
-	return r.RouterCallImpl(ctx, bucketID, "read", fnc, args)
-}
-
-type CallOpts struct {
-	Balance       bool // todo:  now is useless
-	Mode          CallMode
-	PreferReplica bool // todo: now is useless
+	return r.RouterCallImpl(ctx, bucketID, CallOpts{Mode: ReadMode}, fnc, args)
 }
 
 // RouterCall is analog for router_call
 func (r *Router) RouterCall(ctx context.Context, bucketID uint64, opts CallOpts, fnc string, args interface{}) (interface{}, StorageResultTypedFunc, error) {
-	return r.RouterCallImpl(ctx, bucketID, opts.Mode, fnc, args)
+	return r.RouterCallImpl(ctx, bucketID, opts, fnc, args)
 }
 
 // todo: router_map_callrw
