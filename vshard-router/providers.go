@@ -2,6 +2,7 @@ package vshard_router
 
 import (
 	"context"
+	"log"
 	"time"
 )
 
@@ -21,14 +22,29 @@ func (e *EmptyLogger) Debug(ctx context.Context, msg string) {}
 func (e *EmptyLogger) Error(ctx context.Context, msg string) {}
 func (e *EmptyLogger) Warn(ctx context.Context, msg string)  {}
 
+type StdoutLogger struct{}
+
+func (e *StdoutLogger) Info(ctx context.Context, msg string) {
+	log.Println(msg)
+}
+func (e *StdoutLogger) Debug(ctx context.Context, msg string) {
+	log.Println(msg)
+}
+func (e *StdoutLogger) Error(ctx context.Context, msg string) {
+	log.Println(msg)
+}
+func (e *StdoutLogger) Warn(ctx context.Context, msg string) {
+	log.Println(msg)
+}
+
 // Metrics
 
 type MetricsProvider interface {
 	CronDiscoveryEvent(ok bool, duration time.Duration)
-	RetryOnCall(count int)
+	RetryOnCall(reason string)
 }
 
 type EmptyMetrics struct{}
 
 func (e *EmptyMetrics) CronDiscoveryEvent(ok bool, duration time.Duration) {} // todo: add usage
-func (e *EmptyMetrics) RetryOnCall(count int)                              {} // todo: add usage
+func (e *EmptyMetrics) RetryOnCall(reason string)                          {}

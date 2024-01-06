@@ -28,6 +28,10 @@ type Router struct {
 	cancelDiscovery func()
 }
 
+func (r *Router) Metrics() MetricsProvider {
+	return r.cfg.Metrics
+}
+
 func (r *Router) Log() LogProvider {
 	return r.cfg.Logger
 }
@@ -41,7 +45,9 @@ const (
 )
 
 type Config struct {
-	Logger      LogProvider
+	Logger  LogProvider
+	Metrics MetricsProvider
+
 	Replicasets map[ReplicasetInfo][]InstanceInfo
 
 	DiscoveryTimeout time.Duration
@@ -270,6 +276,10 @@ func prepareCfg(ctx context.Context, cfg Config) (Config, error) {
 
 	if cfg.Logger == nil {
 		cfg.Logger = &EmptyLogger{}
+	}
+
+	if cfg.Metrics == nil {
+		cfg.Metrics = &EmptyMetrics{}
 	}
 
 	if cfg.Timeout == 0 {

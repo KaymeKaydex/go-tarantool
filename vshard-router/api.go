@@ -102,6 +102,7 @@ func (r *Router) RouterCallImpl(ctx context.Context,
 
 		rs, err := r.BucketResolve(ctx, bucketID)
 		if err != nil {
+			r.Metrics().RetryOnCall("bucket_resolve_error")
 			continue
 		}
 
@@ -111,10 +112,14 @@ func (r *Router) RouterCallImpl(ctx context.Context,
 
 		resp, err := future.Get()
 		if err != nil {
+			r.Metrics().RetryOnCall("future_get_error")
+
 			continue
 		}
 
 		if len(resp.Data) != 2 {
+			r.Metrics().RetryOnCall("resp_data_error")
+
 			err = fmt.Errorf("invalid length of response data: must be = 2, current: %d", len(resp.Data))
 			continue
 		}
@@ -124,6 +129,8 @@ func (r *Router) RouterCallImpl(ctx context.Context,
 
 			err = mapstructure.Decode(resp.Data[1], vshardErr)
 			if err != nil {
+				r.Metrics().RetryOnCall("internal_error")
+
 				r.Log().Error(ctx, fmt.Sprintf("cant decode vhsard err by trarantool with err: %s", err))
 				continue
 			}
@@ -134,6 +141,8 @@ func (r *Router) RouterCallImpl(ctx context.Context,
 				vshardErr.Name == "BUCKET_IS_LOCKED" ||
 				vshardErr.Name == "TRANSFER_IS_IN_PROGRESS" {
 				r.BucketReset(bucketID)
+				r.Metrics().RetryOnCall("bucket_migrate")
+
 				continue
 			}
 
@@ -141,6 +150,7 @@ func (r *Router) RouterCallImpl(ctx context.Context,
 				sourceErr, errExists := nameToError[vshardErr.Name]
 				if !errExists { // some code error - need fix
 					r.Log().Error(ctx, fmt.Sprintf("cant get error by name %s, need library fix", vshardErr.Name))
+
 					continue
 				}
 
