@@ -108,10 +108,12 @@ func (rs *Replicaset) addInstance(inst *Instance) {
 type InstanceInfo struct {
 	Addr     string
 	IsMaster bool
+	UUID     uuid.UUID
 }
 
 type Instance struct {
 	Addr string // for example profile.internal:3388
+	UUID uuid.UUID
 	conn *tarantool.Connection
 }
 
@@ -162,6 +164,7 @@ func NewRouter(ctx context.Context, cfg Config) (*Router, error) {
 			inst := &Instance{
 				Addr: instance.Addr,
 				conn: conn,
+				UUID: instance.UUID,
 			}
 
 			replicaset.addInstance(inst)
@@ -340,7 +343,7 @@ func (r *Router) RouterBucketCount() uint64 {
 // todo: router_sync
 
 // --------------------------------------------------------------------------------
-// -- Other
+// -- Public API protection
 // --------------------------------------------------------------------------------
 
 // todo: router_api_call_safe
