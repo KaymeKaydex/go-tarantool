@@ -212,7 +212,7 @@ func NewRouter(ctx context.Context, cfg Config) (*Router, error) {
 		discoveryCronCtx, cancelFunc := context.WithCancel(context.Background())
 
 		go func() {
-			discoveryErr := router.StartCronDiscovery(discoveryCronCtx)
+			discoveryErr := router.startCronDiscovery(discoveryCronCtx)
 			if discoveryErr != nil {
 				router.Log().Error(ctx, fmt.Sprintf("error when run cron discovery: %s", discoveryErr))
 			}

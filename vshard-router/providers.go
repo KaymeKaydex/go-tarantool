@@ -40,11 +40,11 @@ func (e *StdoutLogger) Warn(ctx context.Context, msg string) {
 // Metrics
 
 type MetricsProvider interface {
-	CronDiscoveryEvent(ok bool, duration time.Duration)
+	CronDiscoveryEvent(ok bool, duration time.Duration, reason string)
 	RetryOnCall(reason string)
 }
 
 type EmptyMetrics struct{}
 
-func (e *EmptyMetrics) CronDiscoveryEvent(ok bool, duration time.Duration) {} // todo: add usage
-func (e *EmptyMetrics) RetryOnCall(reason string)                          {}
+func (e *EmptyMetrics) CronDiscoveryEvent(ok bool, duration time.Duration, reason string) {}
+func (e *EmptyMetrics) RetryOnCall(reason string)                                         {}

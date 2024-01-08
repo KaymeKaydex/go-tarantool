@@ -137,16 +137,24 @@ func (r *Router) DiscoveryAllBuckets(ctx context.Context) error {
 	return nil
 }
 
-// StartCronDiscovery is discovery_service_f analog with fibers
-func (r *Router) StartCronDiscovery(ctx context.Context) error {
+// startCronDiscovery is discovery_service_f analog with goroutines instead fibers
+func (r *Router) startCronDiscovery(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
+		r.Metrics().CronDiscoveryEvent(false, 0, "ctx-cancel")
+
 		return ctx.Err()
 	case <-time.After(r.cfg.DiscoveryTimeout):
+		tStartDiscovery := time.Now()
+
 		err := r.DiscoveryAllBuckets(ctx)
 		if err != nil {
+			r.Metrics().CronDiscoveryEvent(false, time.Since(tStartDiscovery), "discovery-error")
+
 			r.Log().Error(ctx, fmt.Sprintf("cant do cron discovery with error: %s", err))
 		}
+
+		r.Metrics().CronDiscoveryEvent(true, time.Since(tStartDiscovery), "ok")
 	}
 
 	return nil
