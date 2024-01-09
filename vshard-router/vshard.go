@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/snksoft/crc"
 
 	tarantool "github.com/tarantool/go-tarantool/v2"
+	"github.com/tarantool/go-tarantool/v2/pool"
 )
 
 var ErrInvalidConfig = fmt.Errorf("config invalid")
@@ -68,11 +68,8 @@ type ReplicasetInfo struct {
 }
 
 type Replicaset struct {
-	Instances []*Instance
-
-	info   ReplicasetInfo
-	master *Instance
-	mu     sync.Mutex
+	conn *pool.ConnectionPool
+	info ReplicasetInfo
 
 	bucketCount atomic.Int32
 }
@@ -82,29 +79,15 @@ type BucketStatInfo struct {
 	Status   string `mapstructure:"status"`
 }
 
-func (rs *Replicaset) updateMaster(to uuid.UUID) error {
-	if rs.master.UUID == to {
-		return fmt.Errorf("rs master and promote master is equal")
-	}
-
-	for _, inst := range rs.Instances {
-		if inst.UUID == to {
-			rs.mu.Lock()
-			rs.master = inst
-			rs.mu.Unlock()
-
-			return nil
-		}
-	}
-
-	return fmt.Errorf("cant find %s replica in replicaset %s", to, rs.info.Name)
-}
-
 func (rs *Replicaset) BucketStat(ctx context.Context, bucketID uint64) (BucketStatInfo, error) {
 	bsInfo := &BucketStatInfo{}
 	bsError := &BucketStatError{}
 
-	future := rs.master.conn.Do(tarantool.NewCallRequest("vshard.storage.bucket_stat").Args([]interface{}{bucketID}).Context(ctx))
+	req := tarantool.NewCallRequest("vshard.storage.bucket_stat")
+	req = req.Args([]interface{}{bucketID})
+	req = req.Context(ctx)
+
+	future := rs.conn.Do(req, pool.RO)
 	resp, err := future.Get()
 	if err != nil {
 		return BucketStatInfo{}, err
@@ -129,21 +112,9 @@ func (rs *Replicaset) BucketStat(ctx context.Context, bucketID uint64) (BucketSt
 	return *bsInfo, bsError
 }
 
-// AddInstance добавляет инстанс в репликасет
-func (rs *Replicaset) addInstance(inst *Instance) {
-	rs.Instances = append(rs.Instances, inst)
-}
-
 type InstanceInfo struct {
-	Addr     string
-	IsMaster bool
-	UUID     uuid.UUID
-}
-
-type Instance struct {
-	Addr string // for example profile.internal:3388
+	Addr string
 	UUID uuid.UUID
-	conn *tarantool.Connection
 }
 
 // --------------------------------------------------------------------------------
@@ -176,7 +147,6 @@ func NewRouter(ctx context.Context, cfg Config) (*Router, error) {
 				Name: rsInfo.Name,
 				UUID: rsInfo.UUID,
 			},
-			mu:          sync.Mutex{},
 			bucketCount: atomic.Int32{},
 		}
 
@@ -184,29 +154,26 @@ func NewRouter(ctx context.Context, cfg Config) (*Router, error) {
 
 		router.idToReplicaset[rsInfo.UUID] = replicaset
 
+		rsDialers := make(map[string]tarantool.Dialer, len(rsInstances))
+
 		for _, instance := range rsInstances {
 			dialer := tarantool.NetDialer{
 				Address:  instance.Addr,
 				User:     cfg.User,
 				Password: cfg.Password,
 			}
-			conn, err := tarantool.Connect(ctx, dialer, tarantool.Opts{Timeout: cfg.Timeout}) // todo: use Pool instead
-			if err != nil {
-				return nil, err
-			}
 
-			inst := &Instance{
-				Addr: instance.Addr,
-				conn: conn,
-				UUID: instance.UUID,
-			}
-
-			replicaset.addInstance(inst)
-
-			if instance.IsMaster {
-				replicaset.master = inst
-			}
+			rsDialers[instance.UUID.String()] = dialer
 		}
+
+		conn, err := pool.Connect(ctx, rsDialers, tarantool.Opts{
+			Timeout: router.cfg.Timeout,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		replicaset.conn = conn
 	}
 
 	err = router.DiscoveryAllBuckets(ctx)
@@ -316,17 +283,7 @@ func validateCfg(cfg Config) error {
 			return fmt.Errorf("one of replicaset uuid is empty")
 		}
 
-		rsHasMaster := false
-
 		for _, node := range cfg.Replicasets[rs] {
-			if node.IsMaster {
-				if rsHasMaster {
-					return fmt.Errorf("replicaster %s has 2 or more masters; need 1", rs.Name)
-				}
-
-				rsHasMaster = true
-			}
-
 			_, err := url.Parse(node.Addr)
 			if err != nil {
 				return err

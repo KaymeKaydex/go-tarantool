@@ -8,6 +8,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/tarantool/go-tarantool/v2"
+	"github.com/tarantool/go-tarantool/v2/pool"
 )
 
 // --------------------------------------------------------------------------------
@@ -104,12 +105,15 @@ func (r *Router) DiscoveryAllBuckets(ctx context.Context) error {
 
 	for _, rs := range r.idToReplicaset {
 		rs := rs
-		rsMaster := rs.master // todo: тянуть с реплики
 
 		errGr.Go(func() error {
 			bucketsInRs := make([]uint64, 0)
 
-			future := rsMaster.conn.Do(tarantool.NewCallRequest("vshard.storage.buckets_discovery").Context(ctx).Args([]interface{}{}))
+			req := tarantool.NewCallRequest("vshard.storage.buckets_discovery").
+				Context(ctx).
+				Args([]interface{}{})
+
+			future := rs.conn.Do(req, pool.RO)
 			// todo: добавить пагинацию там указывается from
 			err := future.GetTyped(&[]interface{}{&bucketsInRs})
 			if err != nil {

@@ -9,6 +9,7 @@ import (
 	"github.com/mitchellh/mapstructure"
 
 	"github.com/tarantool/go-tarantool/v2"
+	"github.com/tarantool/go-tarantool/v2/pool"
 )
 
 // --------------------------------------------------------------------------------
@@ -108,9 +109,7 @@ func (r *Router) RouterCallImpl(ctx context.Context,
 			continue
 		}
 
-		master := rs.master
-
-		future := master.conn.Do(req)
+		future := rs.conn.Do(req, pool.RW) // todo: make this param changeable
 
 		resp, err := future.Get()
 		if err != nil {
@@ -159,16 +158,11 @@ func (r *Router) RouterCallImpl(ctx context.Context,
 				if sourceErr.Name == Errors[2].Name { // if NON-MASTER
 					var updateMasterErr error
 
-					r.Log().Info(ctx, "got error invalid master ->  changing master")
+					r.Log().Info(ctx, "got error invalid master -> something wrong in pool")
 
-					newMasterUUID, updateMasterErr := uuid.Parse(*vshardErr.MasterUUID)
+					_, updateMasterErr = uuid.Parse(*vshardErr.MasterUUID)
 					if updateMasterErr != nil {
 						r.Log().Error(ctx, fmt.Sprintf("cant parse new master uuid with err: %s", updateMasterErr))
-					}
-
-					updateMasterErr = rs.updateMaster(newMasterUUID)
-					if updateMasterErr != nil {
-						r.Log().Error(ctx, fmt.Sprintf("cant update master with err: %s", updateMasterErr))
 					}
 
 					continue
