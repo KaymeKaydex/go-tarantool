@@ -16,14 +16,14 @@ import (
 // -- API
 // --------------------------------------------------------------------------------
 
-type CallMode string
+type VshardMode string
 
 const (
-	ReadMode  CallMode = "read"
-	WriteMode CallMode = "write"
+	ReadMode  VshardMode = "read"
+	WriteMode VshardMode = "write"
 )
 
-func (c CallMode) String() string {
+func (c VshardMode) String() string {
 	return string(c)
 }
 
@@ -57,17 +57,15 @@ func (s StorageCallVShardError) Error() string {
 type StorageResultTypedFunc = func(result interface{}) error
 
 type CallOpts struct {
-	Balance       bool // todo:  now is useless
-	Mode          CallMode
-	PreferReplica bool // todo: now is useless
-	Timeout       time.Duration
+	VshardMode VshardMode // vshard mode in call
+	PoolMode   pool.Mode
+	Timeout    time.Duration
 }
 
 const CallTimeoutMin = time.Second / 2
 
 // RouterCallImpl Perform shard operation function will restart operation
 // after wrong bucket response until timeout is reached
-// todo: now we ignore mode/preferReplica/balance and use only master node for rs
 func (r *Router) RouterCallImpl(ctx context.Context,
 	bucketID uint64,
 	opts CallOpts,
@@ -88,7 +86,7 @@ func (r *Router) RouterCallImpl(ctx context.Context,
 	req = req.Context(ctx)
 	req = req.Args([]interface{}{
 		bucketID,
-		opts.Mode.String(),
+		opts.VshardMode.String(),
 		fnc,
 		args,
 	})
@@ -109,7 +107,7 @@ func (r *Router) RouterCallImpl(ctx context.Context,
 			continue
 		}
 
-		future := rs.conn.Do(req, pool.RW) // todo: make this param changeable
+		future := rs.conn.Do(req, opts.PoolMode)
 
 		resp, err := future.Get()
 		if err != nil {
@@ -175,33 +173,6 @@ func (r *Router) RouterCallImpl(ctx context.Context,
 			return future.GetTyped(&[]interface{}{&stub, result})
 		}, nil
 	}
-}
-
-// Wrappers for router_call with preset mode.
-
-func (r *Router) RouterCallRO(ctx context.Context, bucketID uint64, fnc string, args interface{}) (interface{}, StorageResultTypedFunc, error) {
-	return r.RouterCallImpl(ctx, bucketID, CallOpts{Mode: ReadMode}, fnc, args)
-}
-
-func (r *Router) RouterCallBRO(ctx context.Context, bucketID uint64, fnc string, args interface{}) (interface{}, StorageResultTypedFunc, error) {
-	return r.RouterCallImpl(ctx, bucketID, CallOpts{Mode: ReadMode}, fnc, args)
-}
-
-func (r *Router) RouterCallRW(ctx context.Context, bucketID uint64, fnc string, args interface{}) (interface{}, StorageResultTypedFunc, error) {
-	return r.RouterCallImpl(ctx, bucketID, CallOpts{Mode: WriteMode}, fnc, args)
-}
-
-func (r *Router) RouterCallRE(ctx context.Context, bucketID uint64, fnc string, args interface{}) (interface{}, StorageResultTypedFunc, error) {
-	return r.RouterCallImpl(ctx, bucketID, CallOpts{Mode: ReadMode}, fnc, args)
-}
-
-func (r *Router) RouterCallBRE(ctx context.Context, bucketID uint64, fnc string, args interface{}) (interface{}, StorageResultTypedFunc, error) {
-	return r.RouterCallImpl(ctx, bucketID, CallOpts{Mode: ReadMode}, fnc, args)
-}
-
-// RouterCall is analog for router_call
-func (r *Router) RouterCall(ctx context.Context, bucketID uint64, opts CallOpts, fnc string, args interface{}) (interface{}, StorageResultTypedFunc, error) {
-	return r.RouterCallImpl(ctx, bucketID, opts, fnc, args)
 }
 
 // todo: router_map_callrw
