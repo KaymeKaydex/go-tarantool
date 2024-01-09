@@ -17,8 +17,6 @@ import (
 
 var ErrInvalidConfig = fmt.Errorf("config invalid")
 
-const DefaultTimeout = time.Second * 3
-
 type Router struct {
 	cfg Config
 
@@ -55,11 +53,10 @@ type Config struct {
 	DiscoveryTimeout time.Duration
 	DiscoveryMode    DiscoveryMode
 
-	IsMasterAuto     bool
 	TotalBucketCount uint64
 	User             string
 	Password         string
-	Timeout          time.Duration
+	PoolOpts         tarantool.Opts
 }
 
 type ReplicasetInfo struct {
@@ -166,9 +163,7 @@ func NewRouter(ctx context.Context, cfg Config) (*Router, error) {
 			rsDialers[instance.UUID.String()] = dialer
 		}
 
-		conn, err := pool.Connect(ctx, rsDialers, tarantool.Opts{
-			Timeout: router.cfg.Timeout,
-		})
+		conn, err := pool.Connect(ctx, rsDialers, router.cfg.PoolOpts)
 		if err != nil {
 			return nil, err
 		}
@@ -255,11 +250,6 @@ func prepareCfg(ctx context.Context, cfg Config) (Config, error) {
 		cfg.Metrics = &EmptyMetrics{}
 	}
 
-	if cfg.Timeout == 0 {
-		cfg.Timeout = DefaultTimeout
-		cfg.Logger.Warn(ctx, "empty config timeout, using default timeout: "+DefaultTimeout.String())
-	}
-
 	return cfg, nil
 }
 
@@ -293,25 +283,6 @@ func validateCfg(cfg Config) error {
 
 	return nil
 }
-
-// --------------------------------------------------------------------------------
-// -- Master search
-// --------------------------------------------------------------------------------
-
-// todo
-
-// --------------------------------------------------------------------------------
-// -- Bootstrap
-// --------------------------------------------------------------------------------
-// todo: cluster_bootstrap
-
-// --------------------------------------------------------------------------------
-// -- Monitoring
-// --------------------------------------------------------------------------------
-
-// todo: replicaset_instance_info
-// todo: router_info
-// todo: router_buckets_info
 
 // --------------------------------------------------------------------------------
 // -- Other

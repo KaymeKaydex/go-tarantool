@@ -147,28 +147,6 @@ func (r *Router) RouterCallImpl(ctx context.Context,
 				continue
 			}
 
-			if r.cfg.IsMasterAuto { // if master auto we need to use master in error response
-				sourceErr, errExists := nameToError[vshardErr.Name]
-				if !errExists { // some code error - need fix
-					r.Log().Error(ctx, fmt.Sprintf("cant get error by name %s, need library fix", vshardErr.Name))
-
-					continue
-				}
-
-				if sourceErr.Name == Errors[2].Name { // if NON-MASTER
-					var updateMasterErr error
-
-					r.Log().Info(ctx, "got error invalid master -> something wrong in pool")
-
-					_, updateMasterErr = uuid.Parse(*vshardErr.MasterUUID)
-					if updateMasterErr != nil {
-						r.Log().Error(ctx, fmt.Sprintf("cant parse new master uuid with err: %s", updateMasterErr))
-					}
-
-					continue
-				}
-			}
-
 			continue
 		}
 
