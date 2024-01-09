@@ -3,7 +3,13 @@ package vshard_router
 import (
 	"context"
 	"log"
+	"sync/atomic"
 	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/tarantool/go-tarantool/v2"
+	"github.com/tarantool/go-tarantool/v2/pool"
 )
 
 var (
@@ -57,6 +63,73 @@ func (e *EmptyMetrics) CronDiscoveryEvent(ok bool, duration time.Duration, reaso
 func (e *EmptyMetrics) RetryOnCall(reason string)                                         {}
 func (e *EmptyMetrics) RequestDuration(duration time.Duration, ok bool)                   {}
 
-// todo: cделать provider к изменению топологии роутера
-// 1 - vshard.storage.internal.replicasets
-// 2 - callback
+type TopologyProvider struct {
+	r *Router
+}
+
+func (r *Router) Topology() *TopologyProvider {
+	return &TopologyProvider{r: r}
+}
+
+func (t *TopologyProvider) AddInstance(ctx context.Context, rsID uuid.UUID, info InstanceInfo) error {
+	return t.r.idToReplicaset[rsID].conn.Add(ctx, info.UUID.String(), tarantool.NetDialer{
+		Address:  info.Addr,
+		User:     t.r.cfg.User,
+		Password: t.r.cfg.Password,
+	})
+}
+
+func (t *TopologyProvider) RemoveInstance(ctx context.Context, rsID, instanceID uuid.UUID) error {
+	return t.r.idToReplicaset[rsID].conn.Remove(instanceID.String())
+}
+
+func (t *TopologyProvider) AddReplicasets(ctx context.Context, replicasets map[ReplicasetInfo][]InstanceInfo) error {
+	router := t.r
+	cfg := router.cfg
+
+	for rsInfo, rsInstances := range replicasets {
+		rsInfo := rsInfo
+		rsInstances := rsInstances
+
+		replicaset := &Replicaset{
+			info: ReplicasetInfo{
+				Name: rsInfo.Name,
+				UUID: rsInfo.UUID,
+			},
+			bucketCount: atomic.Int32{},
+		}
+
+		replicaset.bucketCount.Store(0)
+
+		rsDialers := make(map[string]tarantool.Dialer, len(rsInstances))
+
+		for _, instance := range rsInstances {
+			dialer := tarantool.NetDialer{
+				Address:  instance.Addr,
+				User:     cfg.User,
+				Password: cfg.Password,
+			}
+
+			rsDialers[instance.UUID.String()] = dialer
+		}
+
+		conn, err := pool.Connect(ctx, rsDialers, router.cfg.PoolOpts)
+		if err != nil {
+			return err
+		}
+
+		replicaset.conn = conn
+		router.idToReplicaset[rsInfo.UUID] = replicaset // add when conn is ready
+	}
+
+	return nil
+}
+
+func (t *TopologyProvider) RemoveReplicaset(ctx context.Context, rsID uuid.UUID) []error {
+	r := t.r
+
+	errors := r.idToReplicaset[rsID].conn.CloseGraceful()
+	delete(r.idToReplicaset, rsID)
+
+	return errors
+}
