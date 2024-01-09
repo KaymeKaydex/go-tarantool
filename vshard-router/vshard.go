@@ -73,7 +73,7 @@ type Replicaset struct {
 	master *Instance
 	mu     sync.Mutex
 
-	bucketCount int // todo: atomic int
+	bucketCount atomic.Int32
 }
 
 type BucketStatInfo struct {
@@ -176,8 +176,10 @@ func NewRouter(ctx context.Context, cfg Config) (*Router, error) {
 				UUID: rsInfo.UUID,
 			},
 			mu:          sync.Mutex{},
-			bucketCount: 0,
+			bucketCount: atomic.Int32{},
 		}
+
+		replicaset.bucketCount.Store(0)
 
 		router.idToReplicaset[rsInfo.UUID] = replicaset
 
@@ -238,12 +240,12 @@ func (r *Router) BucketSet(bucketID uint64, rsID uuid.UUID) (*Replicaset, error)
 
 	if oldReplicaset != rs {
 		if oldReplicaset != nil {
-			oldReplicaset.bucketCount--
+			oldReplicaset.bucketCount.Add(-1)
 		} else {
 			r.knownBucketCount.Add(1)
 		}
 
-		rs.bucketCount++
+		rs.bucketCount.Add(1)
 	}
 
 	r.routeMap[bucketID] = rs
@@ -266,7 +268,7 @@ func (r *Router) RouteMapClean() {
 	r.knownBucketCount.Store(0)
 
 	for _, rs := range r.idToReplicaset {
-		rs.bucketCount = 0
+		rs.bucketCount.Store(0)
 	}
 
 }

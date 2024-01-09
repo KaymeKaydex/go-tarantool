@@ -61,7 +61,7 @@ func (r *Router) BucketResolve(ctx context.Context, bucketID uint64) (*Replicase
 
 // DiscoveryHandleBuckets arrange downloaded buckets to the route map so as they reference a given replicaset.
 func (r *Router) DiscoveryHandleBuckets(ctx context.Context, rs *Replicaset, buckets []uint64) {
-	count := rs.bucketCount
+	count := rs.bucketCount.Load()
 	affected := make(map[*Replicaset]int)
 
 	for _, bucketID := range buckets {
@@ -74,10 +74,10 @@ func (r *Router) DiscoveryHandleBuckets(ctx context.Context, rs *Replicaset, buc
 				bc := oldRs.bucketCount
 
 				if _, exists := affected[oldRs]; !exists {
-					affected[oldRs] = bc
+					affected[oldRs] = int(bc.Load())
 				}
 
-				oldRs.bucketCount = bc - 1
+				oldRs.bucketCount.Store(bc.Load() - 1)
 			} else {
 				//                 router.known_bucket_count = router.known_bucket_count + 1
 				r.knownBucketCount.Add(1)
@@ -86,11 +86,11 @@ func (r *Router) DiscoveryHandleBuckets(ctx context.Context, rs *Replicaset, buc
 		}
 	}
 
-	if count != rs.bucketCount {
+	if count != rs.bucketCount.Load() {
 		r.cfg.Logger.Info(ctx, fmt.Sprintf("Updated %s buckets: was %d, became %d", rs.info.Name, rs.bucketCount, count))
 	}
 
-	rs.bucketCount = count
+	rs.bucketCount.Store(count)
 
 	for rs, oldBucketCount := range affected {
 		r.Log().Info(ctx, fmt.Sprintf("Affected buckets of %s: was %d, became %d", rs.info.Name, oldBucketCount, rs.bucketCount))
