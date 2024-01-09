@@ -27,7 +27,7 @@ func (r *Router) BucketDiscovery(ctx context.Context, bucketID uint64) (*Replica
 
 	// todo: async and wrap all errors, вычислить при каком количестве нужна парралельность или сразу парралельно
 	for rsID, rs := range r.idToReplicaset {
-		_, err := rs.BucketStat(ctx, bucketID)
+		_, err := rs.bucketStat(ctx, bucketID)
 		if err == nil {
 			return r.BucketSet(bucketID, rsID)
 		}
@@ -100,6 +100,13 @@ func (r *Router) DiscoveryHandleBuckets(ctx context.Context, rs *Replicaset, buc
 }
 
 func (r *Router) DiscoveryAllBuckets(ctx context.Context) error {
+	type BucketsDiscoveryPaginationRequest struct {
+		From uint64 `msgpack:"from"`
+	}
+
+	t := time.Now()
+	r.Log().Debug(ctx, "start discovery all buckets")
+
 	knownBucket := atomic.Int32{}
 
 	errGr, ctx := errgroup.WithContext(ctx)
@@ -108,24 +115,43 @@ func (r *Router) DiscoveryAllBuckets(ctx context.Context) error {
 		rs := rs
 
 		errGr.Go(func() error {
-			bucketsInRs := make([]uint64, 0)
+			rawReq := BucketsDiscoveryPaginationRequest{From: 0}
 
-			req := tarantool.NewCallRequest("vshard.storage.buckets_discovery").
-				Context(ctx).
-				Args([]interface{}{})
+			for {
+				bucketsInRS := make([]uint64, 0) // cause lua starts from 1
+				nextFrom := new(uint64)
+				req := tarantool.NewCallRequest("vshard.storage.buckets_discovery").
+					Context(ctx).
+					Args([]interface{}{&rawReq})
 
-			future := rs.conn.Do(req, pool.RO)
-			// todo: добавить пагинацию там указывается from
-			err := future.GetTyped(&[]interface{}{&bucketsInRs})
-			if err != nil {
-				return err
+				future := rs.conn.Do(req, pool.PreferRO)
+
+				err := future.GetTyped(&[]interface{}{&struct {
+					Buckets  *[]uint64 `msgpack:"buckets"`
+					NextFrom *uint64   `msgpack:"next_from"`
+				}{
+					Buckets:  &bucketsInRS,
+					NextFrom: nextFrom,
+				}})
+				if err != nil {
+					return err
+				}
+
+				if len(bucketsInRS) == 0 {
+					return nil
+				}
+
+				for _, bucket := range bucketsInRS {
+					if bucket == 0 {
+						break
+					}
+
+					r.routeMap[bucket] = rs
+					knownBucket.Add(1)
+				}
+
+				rawReq.From = *nextFrom
 			}
-
-			for _, bucket := range bucketsInRs {
-				r.routeMap[bucket] = rs
-				knownBucket.Add(1)
-			}
-			return nil
 		})
 
 	}
@@ -134,6 +160,7 @@ func (r *Router) DiscoveryAllBuckets(ctx context.Context) error {
 	if err != nil {
 		return nil
 	}
+	r.Log().Debug(ctx, fmt.Sprintf("discovery done since: %s", time.Since(t)))
 
 	r.knownBucketCount.Store(knownBucket.Load())
 

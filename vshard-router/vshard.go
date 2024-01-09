@@ -76,7 +76,7 @@ type BucketStatInfo struct {
 	Status   string `mapstructure:"status"`
 }
 
-func (rs *Replicaset) BucketStat(ctx context.Context, bucketID uint64) (BucketStatInfo, error) {
+func (rs *Replicaset) bucketStat(ctx context.Context, bucketID uint64) (BucketStatInfo, error) {
 	bsInfo := &BucketStatInfo{}
 	bsError := &BucketStatError{}
 
