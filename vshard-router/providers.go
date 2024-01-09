@@ -4,9 +4,15 @@ import (
 	"context"
 	"log"
 	"time"
+
+	"github.com/google/uuid"
 )
 
-// Logs
+var (
+	_ MetricsProvider = (*EmptyMetrics)(nil)
+	_ LogProvider     = (*EmptyLogger)(nil)
+	_ LogProvider     = (*StdoutLogger)(nil)
+)
 
 type LogProvider interface {
 	Info(context.Context, string)
@@ -42,15 +48,24 @@ func (e *StdoutLogger) Warn(ctx context.Context, msg string) {
 type MetricsProvider interface {
 	CronDiscoveryEvent(ok bool, duration time.Duration, reason string)
 	RetryOnCall(reason string)
-	// todo: метрики для вызова
+	RequestDuration(duration time.Duration, ok bool)
 }
 
-// todo: добавить may metrics provider
-
+// EmptyMetrics is default empty metrics provider
+// you can embed this type and realize just some metrics
 type EmptyMetrics struct{}
 
 func (e *EmptyMetrics) CronDiscoveryEvent(ok bool, duration time.Duration, reason string) {}
 func (e *EmptyMetrics) RetryOnCall(reason string)                                         {}
+func (e *EmptyMetrics) RequestDuration(duration time.Duration, ok bool)                   {}
+
+// TopologyProvider is external provider for service that uses go vshard-router
+type TopologyProvider interface {
+	AddReplicaset()
+	RemoveReplicaset(info ReplicasetInfo)
+	AddInstanceToReplicaset(info ReplicasetInfo, instanceInfo InstanceInfo)
+	ChangeReplicasetMaster(info ReplicasetInfo, newMaster uuid.UUID)
+}
 
 // todo: cделать provider к изменению топологии роутера
 // 1 - vshard.storage.internal.replicasets

@@ -96,7 +96,9 @@ func (r *Router) RouterCallImpl(ctx context.Context,
 
 	for {
 
-		if time.Since(timeStart) > timeout {
+		if since := time.Since(timeStart); since > timeout {
+			r.Metrics().RequestDuration(since, false)
+
 			return nil, nil, err
 		}
 
@@ -192,6 +194,8 @@ func (r *Router) RouterCallImpl(ctx context.Context,
 
 			err = errorResp
 		}
+
+		r.Metrics().RequestDuration(time.Since(timeStart), true)
 
 		return resp.Data[1], func(result interface{}) error {
 			var stub interface{}

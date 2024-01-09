@@ -24,7 +24,7 @@ type Router struct {
 
 	idToReplicaset   map[uuid.UUID]*Replicaset
 	routeMap         []*Replicaset
-	knownBucketCount atomic.Int32 // todo: atomic int
+	knownBucketCount atomic.Int32
 
 	cancelDiscovery func()
 }
@@ -46,6 +46,7 @@ const (
 )
 
 type Config struct {
+	// providers
 	Logger  LogProvider
 	Metrics MetricsProvider
 
@@ -296,7 +297,6 @@ func prepareCfg(ctx context.Context, cfg Config) (Config, error) {
 }
 
 func validateCfg(cfg Config) error {
-	// todo: сделать валидацию мастера
 	if len(cfg.Replicasets) < 1 {
 		return fmt.Errorf("replicasets are empty")
 	}
@@ -316,7 +316,17 @@ func validateCfg(cfg Config) error {
 			return fmt.Errorf("one of replicaset uuid is empty")
 		}
 
+		rsHasMaster := false
+
 		for _, node := range cfg.Replicasets[rs] {
+			if node.IsMaster {
+				if rsHasMaster {
+					return fmt.Errorf("replicaster %s has 2 or more masters; need 1", rs.Name)
+				}
+
+				rsHasMaster = true
+			}
+
 			_, err := url.Parse(node.Addr)
 			if err != nil {
 				return err
