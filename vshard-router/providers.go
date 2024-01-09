@@ -42,9 +42,16 @@ func (e *StdoutLogger) Warn(ctx context.Context, msg string) {
 type MetricsProvider interface {
 	CronDiscoveryEvent(ok bool, duration time.Duration, reason string)
 	RetryOnCall(reason string)
+	// todo: метрики для вызова
 }
+
+// todo: добавить may metrics provider
 
 type EmptyMetrics struct{}
 
 func (e *EmptyMetrics) CronDiscoveryEvent(ok bool, duration time.Duration, reason string) {}
 func (e *EmptyMetrics) RetryOnCall(reason string)                                         {}
+
+// todo: cделать provider к изменению топологии роутера
+// 1 - vshard.storage.internal.replicasets
+// 2 - callback

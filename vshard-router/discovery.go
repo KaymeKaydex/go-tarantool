@@ -111,7 +111,7 @@ func (r *Router) DiscoveryAllBuckets(ctx context.Context) error {
 			bucketsInRs := make([]uint64, 0)
 
 			future := rsMaster.conn.Do(tarantool.NewCallRequest("vshard.storage.buckets_discovery").Context(ctx).Args([]interface{}{}))
-			// todo: добавить пагинацию
+			// todo: добавить пагинацию там указывается from
 			err := future.GetTyped(&[]interface{}{&bucketsInRs})
 			if err != nil {
 				return err
