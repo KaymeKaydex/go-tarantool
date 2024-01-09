@@ -23,7 +23,7 @@ type Router struct {
 
 	idToReplicaset   map[uuid.UUID]*Replicaset
 	routeMap         []*Replicaset
-	knownBucketCount int
+	knownBucketCount int // todo: atomic int
 
 	cancelDiscovery func()
 }
@@ -72,7 +72,7 @@ type Replicaset struct {
 	master *Instance
 	mu     sync.Mutex
 
-	bucketCount int
+	bucketCount int // todo: atomic int
 }
 
 type BucketStatInfo struct {
@@ -184,7 +184,7 @@ func NewRouter(ctx context.Context, cfg Config) (*Router, error) {
 				User:     cfg.User,
 				Password: cfg.Password,
 			}
-			conn, err := tarantool.Connect(ctx, dialer, tarantool.Opts{Timeout: cfg.Timeout})
+			conn, err := tarantool.Connect(ctx, dialer, tarantool.Opts{Timeout: cfg.Timeout}) // todo: use Pool instead
 			if err != nil {
 				return nil, err
 			}
@@ -291,6 +291,7 @@ func prepareCfg(ctx context.Context, cfg Config) (Config, error) {
 }
 
 func validateCfg(cfg Config) error {
+	// todo: сделать валидацию мастера
 	if len(cfg.Replicasets) < 1 {
 		return fmt.Errorf("replicasets are empty")
 	}

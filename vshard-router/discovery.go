@@ -20,10 +20,10 @@ func (r *Router) BucketDiscovery(ctx context.Context, bucketID uint64) (*Replica
 	if rs != nil {
 		return rs, nil
 	}
-
+	// todo: локать в случае если бакет уже в поиске
 	r.cfg.Logger.Info(ctx, fmt.Sprintf("Discovering bucket %d", bucketID))
 
-	// todo: async and wrap all errors
+	// todo: async and wrap all errors, вычислить при каком количестве нужна парралельность или сразу парралельно
 	for rsID, rs := range r.idToReplicaset {
 		_, err := rs.BucketStat(ctx, bucketID)
 		if err == nil {
@@ -105,13 +105,13 @@ func (r *Router) DiscoveryAllBuckets(ctx context.Context) error {
 
 	for _, rs := range r.idToReplicaset {
 		rs := rs
-		rsMaster := rs.master
+		rsMaster := rs.master // todo: тянуть с реплики
 
 		errGr.Go(func() error {
 			bucketsInRs := make([]uint64, 0)
 
 			future := rsMaster.conn.Do(tarantool.NewCallRequest("vshard.storage.buckets_discovery").Context(ctx).Args([]interface{}{}))
-
+			// todo: добавить пагинацию
 			err := future.GetTyped(&[]interface{}{&bucketsInRs})
 			if err != nil {
 				return err
@@ -131,7 +131,7 @@ func (r *Router) DiscoveryAllBuckets(ctx context.Context) error {
 		return nil
 	}
 
-	r.routeMap = routeMap
+	r.routeMap = routeMap // todo: писать сразу
 	r.knownBucketCount = knownBucket
 
 	return nil

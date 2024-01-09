@@ -157,6 +157,8 @@ func (r *Router) RouterCallImpl(ctx context.Context,
 				if sourceErr.Name == Errors[2].Name { // if NON-MASTER
 					var updateMasterErr error
 
+					r.Log().Info(ctx, "got error invalid master ->  changing master")
+
 					newMasterUUID, updateMasterErr := uuid.Parse(*vshardErr.MasterUUID)
 					if updateMasterErr != nil {
 						r.Log().Error(ctx, fmt.Sprintf("cant parse new master uuid with err: %s", updateMasterErr))
