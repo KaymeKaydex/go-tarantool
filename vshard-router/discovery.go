@@ -95,7 +95,7 @@ func (r *Router) DiscoveryHandleBuckets(ctx context.Context, rs *Replicaset, buc
 	rs.bucketCount.Store(count)
 
 	for rs, oldBucketCount := range affected {
-		r.Log().Info(ctx, fmt.Sprintf("Affected buckets of %s: was %d, became %d", rs.info.Name, oldBucketCount, rs.bucketCount))
+		r.log().Info(ctx, fmt.Sprintf("Affected buckets of %s: was %d, became %d", rs.info.Name, oldBucketCount, rs.bucketCount))
 	}
 }
 
@@ -105,7 +105,7 @@ func (r *Router) DiscoveryAllBuckets(ctx context.Context) error {
 	}
 
 	t := time.Now()
-	r.Log().Debug(ctx, "start discovery all buckets")
+	r.log().Debug(ctx, "start discovery all buckets")
 
 	knownBucket := atomic.Int32{}
 
@@ -160,7 +160,7 @@ func (r *Router) DiscoveryAllBuckets(ctx context.Context) error {
 	if err != nil {
 		return nil
 	}
-	r.Log().Debug(ctx, fmt.Sprintf("discovery done since: %s", time.Since(t)))
+	r.log().Debug(ctx, fmt.Sprintf("discovery done since: %s", time.Since(t)))
 
 	r.knownBucketCount.Store(knownBucket.Load())
 
@@ -171,7 +171,7 @@ func (r *Router) DiscoveryAllBuckets(ctx context.Context) error {
 func (r *Router) startCronDiscovery(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
-		r.Metrics().CronDiscoveryEvent(false, 0, "ctx-cancel")
+		r.metrics().CronDiscoveryEvent(false, 0, "ctx-cancel")
 
 		return ctx.Err()
 	case <-time.After(r.cfg.DiscoveryTimeout):
@@ -179,12 +179,12 @@ func (r *Router) startCronDiscovery(ctx context.Context) error {
 
 		err := r.DiscoveryAllBuckets(ctx)
 		if err != nil {
-			r.Metrics().CronDiscoveryEvent(false, time.Since(tStartDiscovery), "discovery-error")
+			r.metrics().CronDiscoveryEvent(false, time.Since(tStartDiscovery), "discovery-error")
 
-			r.Log().Error(ctx, fmt.Sprintf("cant do cron discovery with error: %s", err))
+			r.log().Error(ctx, fmt.Sprintf("cant do cron discovery with error: %s", err))
 		}
 
-		r.Metrics().CronDiscoveryEvent(true, time.Since(tStartDiscovery), "ok")
+		r.metrics().CronDiscoveryEvent(true, time.Since(tStartDiscovery), "ok")
 	}
 
 	return nil

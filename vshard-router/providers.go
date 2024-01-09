@@ -4,8 +4,6 @@ import (
 	"context"
 	"log"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 var (
@@ -58,14 +56,6 @@ type EmptyMetrics struct{}
 func (e *EmptyMetrics) CronDiscoveryEvent(ok bool, duration time.Duration, reason string) {}
 func (e *EmptyMetrics) RetryOnCall(reason string)                                         {}
 func (e *EmptyMetrics) RequestDuration(duration time.Duration, ok bool)                   {}
-
-// TopologyProvider is external provider for service that uses go vshard-router
-type TopologyProvider interface {
-	AddReplicaset()
-	RemoveReplicaset(info ReplicasetInfo)
-	AddInstanceToReplicaset(info ReplicasetInfo, instanceInfo InstanceInfo)
-	ChangeReplicasetMaster(info ReplicasetInfo, newMaster uuid.UUID)
-}
 
 // todo: cделать provider к изменению топологии роутера
 // 1 - vshard.storage.internal.replicasets

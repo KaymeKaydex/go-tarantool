@@ -96,14 +96,14 @@ func (r *Router) RouterCallImpl(ctx context.Context,
 	for {
 
 		if since := time.Since(timeStart); since > timeout {
-			r.Metrics().RequestDuration(since, false)
+			r.metrics().RequestDuration(since, false)
 
 			return nil, nil, err
 		}
 
 		rs, err := r.BucketResolve(ctx, bucketID)
 		if err != nil {
-			r.Metrics().RetryOnCall("bucket_resolve_error")
+			r.metrics().RetryOnCall("bucket_resolve_error")
 			continue
 		}
 
@@ -111,13 +111,13 @@ func (r *Router) RouterCallImpl(ctx context.Context,
 
 		resp, err := future.Get()
 		if err != nil {
-			r.Metrics().RetryOnCall("future_get_error")
+			r.metrics().RetryOnCall("future_get_error")
 
 			continue
 		}
 
 		if len(resp.Data) != 2 {
-			r.Metrics().RetryOnCall("resp_data_error")
+			r.metrics().RetryOnCall("resp_data_error")
 
 			err = fmt.Errorf("invalid length of response data: must be = 2, current: %d", len(resp.Data))
 			continue
@@ -128,9 +128,9 @@ func (r *Router) RouterCallImpl(ctx context.Context,
 
 			err = mapstructure.Decode(resp.Data[1], vshardErr)
 			if err != nil {
-				r.Metrics().RetryOnCall("internal_error")
+				r.metrics().RetryOnCall("internal_error")
 
-				r.Log().Error(ctx, fmt.Sprintf("cant decode vhsard err by trarantool with err: %s", err))
+				r.log().Error(ctx, fmt.Sprintf("cant decode vhsard err by trarantool with err: %s", err))
 				continue
 			}
 
@@ -140,7 +140,7 @@ func (r *Router) RouterCallImpl(ctx context.Context,
 				vshardErr.Name == "BUCKET_IS_LOCKED" ||
 				vshardErr.Name == "TRANSFER_IS_IN_PROGRESS" {
 				r.BucketReset(bucketID)
-				r.Metrics().RetryOnCall("bucket_migrate")
+				r.metrics().RetryOnCall("bucket_migrate")
 
 				continue
 			}
@@ -165,7 +165,7 @@ func (r *Router) RouterCallImpl(ctx context.Context,
 			err = errorResp
 		}
 
-		r.Metrics().RequestDuration(time.Since(timeStart), true)
+		r.metrics().RequestDuration(time.Since(timeStart), true)
 
 		return resp.Data[1], func(result interface{}) error {
 			var stub interface{}

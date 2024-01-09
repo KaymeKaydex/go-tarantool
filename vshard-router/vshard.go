@@ -27,12 +27,82 @@ type Router struct {
 	cancelDiscovery func()
 }
 
-func (r *Router) Metrics() MetricsProvider {
+func (r *Router) metrics() MetricsProvider {
 	return r.cfg.Metrics
 }
-
-func (r *Router) Log() LogProvider {
+func (r *Router) log() LogProvider {
 	return r.cfg.Logger
+}
+
+type TopologyProvider struct {
+	r *Router
+}
+
+func (r *Router) Topology() *TopologyProvider {
+	return &TopologyProvider{r: r}
+}
+
+func (t *TopologyProvider) AddInstance(ctx context.Context, rsID uuid.UUID, info InstanceInfo) error {
+	return t.r.idToReplicaset[rsID].conn.Add(ctx, info.UUID.String(), tarantool.NetDialer{
+		Address:  info.Addr,
+		User:     t.r.cfg.User,
+		Password: t.r.cfg.Password,
+	})
+}
+
+func (t *TopologyProvider) RemoveInstance(ctx context.Context, rsID, instanceID uuid.UUID) error {
+	return t.r.idToReplicaset[rsID].conn.Remove(instanceID.String())
+}
+
+func (t *TopologyProvider) AddReplicasets(ctx context.Context, replicasets map[ReplicasetInfo][]InstanceInfo) error {
+	router := t.r
+	cfg := router.cfg
+
+	for rsInfo, rsInstances := range replicasets {
+		rsInfo := rsInfo
+		rsInstances := rsInstances
+
+		replicaset := &Replicaset{
+			info: ReplicasetInfo{
+				Name: rsInfo.Name,
+				UUID: rsInfo.UUID,
+			},
+			bucketCount: atomic.Int32{},
+		}
+
+		replicaset.bucketCount.Store(0)
+
+		rsDialers := make(map[string]tarantool.Dialer, len(rsInstances))
+
+		for _, instance := range rsInstances {
+			dialer := tarantool.NetDialer{
+				Address:  instance.Addr,
+				User:     cfg.User,
+				Password: cfg.Password,
+			}
+
+			rsDialers[instance.UUID.String()] = dialer
+		}
+
+		conn, err := pool.Connect(ctx, rsDialers, router.cfg.PoolOpts)
+		if err != nil {
+			return err
+		}
+
+		replicaset.conn = conn
+		router.idToReplicaset[rsInfo.UUID] = replicaset // add when conn is ready
+	}
+
+	return nil
+}
+
+func (t *TopologyProvider) RemoveReplicaset(ctx context.Context, rsID uuid.UUID) []error {
+	r := t.r
+
+	errors := r.idToReplicaset[rsID].conn.CloseGraceful()
+	delete(r.idToReplicaset, rsID)
+
+	return errors
 }
 
 type DiscoveryMode int
@@ -135,40 +205,11 @@ func NewRouter(ctx context.Context, cfg Config) (*Router, error) {
 
 	router.knownBucketCount.Store(0)
 
-	for rsInfo, rsInstances := range cfg.Replicasets {
-		rsInfo := rsInfo
-		rsInstances := rsInstances
+	err = router.Topology().AddReplicasets(ctx, cfg.Replicasets)
+	if err != nil {
+		router.log().Error(ctx, fmt.Sprintf("cant add replicasets with error: %s", err))
 
-		replicaset := &Replicaset{
-			info: ReplicasetInfo{
-				Name: rsInfo.Name,
-				UUID: rsInfo.UUID,
-			},
-			bucketCount: atomic.Int32{},
-		}
-
-		replicaset.bucketCount.Store(0)
-
-		router.idToReplicaset[rsInfo.UUID] = replicaset
-
-		rsDialers := make(map[string]tarantool.Dialer, len(rsInstances))
-
-		for _, instance := range rsInstances {
-			dialer := tarantool.NetDialer{
-				Address:  instance.Addr,
-				User:     cfg.User,
-				Password: cfg.Password,
-			}
-
-			rsDialers[instance.UUID.String()] = dialer
-		}
-
-		conn, err := pool.Connect(ctx, rsDialers, router.cfg.PoolOpts)
-		if err != nil {
-			return nil, err
-		}
-
-		replicaset.conn = conn
+		return nil, err
 	}
 
 	err = router.DiscoveryAllBuckets(ctx)
@@ -182,7 +223,7 @@ func NewRouter(ctx context.Context, cfg Config) (*Router, error) {
 		go func() {
 			discoveryErr := router.startCronDiscovery(discoveryCronCtx)
 			if discoveryErr != nil {
-				router.Log().Error(ctx, fmt.Sprintf("error when run cron discovery: %s", discoveryErr))
+				router.log().Error(ctx, fmt.Sprintf("error when run cron discovery: %s", discoveryErr))
 			}
 		}()
 
