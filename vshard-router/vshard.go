@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,7 +24,7 @@ type Router struct {
 
 	idToReplicaset   map[uuid.UUID]*Replicaset
 	routeMap         []*Replicaset
-	knownBucketCount int // todo: atomic int
+	knownBucketCount atomic.Int32 // todo: atomic int
 
 	cancelDiscovery func()
 }
@@ -160,8 +161,10 @@ func NewRouter(ctx context.Context, cfg Config) (*Router, error) {
 		cfg:              cfg,
 		idToReplicaset:   make(map[uuid.UUID]*Replicaset),
 		routeMap:         make([]*Replicaset, cfg.TotalBucketCount+1),
-		knownBucketCount: 0,
+		knownBucketCount: atomic.Int32{},
 	}
+
+	router.knownBucketCount.Store(0)
 
 	for rsInfo, rsInstances := range cfg.Replicasets {
 		rsInfo := rsInfo
@@ -237,7 +240,7 @@ func (r *Router) BucketSet(bucketID uint64, rsID uuid.UUID) (*Replicaset, error)
 		if oldReplicaset != nil {
 			oldReplicaset.bucketCount--
 		} else {
-			r.knownBucketCount++
+			r.knownBucketCount.Add(1)
 		}
 
 		rs.bucketCount++
@@ -253,14 +256,14 @@ func (r *Router) BucketReset(bucketID uint64) {
 		return
 	}
 
-	r.knownBucketCount--
+	r.knownBucketCount.Add(-1)
 	r.routeMap[bucketID] = nil
 }
 
 func (r *Router) RouteMapClean() {
 
-	r.routeMap = nil
-	r.knownBucketCount = 0
+	r.routeMap = make([]*Replicaset, r.cfg.TotalBucketCount+1)
+	r.knownBucketCount.Store(0)
 
 	for _, rs := range r.idToReplicaset {
 		rs.bucketCount = 0

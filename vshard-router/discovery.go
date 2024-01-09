@@ -80,7 +80,7 @@ func (r *Router) DiscoveryHandleBuckets(ctx context.Context, rs *Replicaset, buc
 				oldRs.bucketCount = bc - 1
 			} else {
 				//                 router.known_bucket_count = router.known_bucket_count + 1
-				r.knownBucketCount++
+				r.knownBucketCount.Add(1)
 			}
 			r.routeMap[bucketID] = rs
 		}
@@ -98,7 +98,6 @@ func (r *Router) DiscoveryHandleBuckets(ctx context.Context, rs *Replicaset, buc
 }
 
 func (r *Router) DiscoveryAllBuckets(ctx context.Context) error {
-	routeMap := make([]*Replicaset, r.cfg.TotalBucketCount+1)
 	knownBucket := 0
 
 	errGr, ctx := errgroup.WithContext(ctx)
@@ -118,7 +117,7 @@ func (r *Router) DiscoveryAllBuckets(ctx context.Context) error {
 			}
 
 			for _, bucket := range bucketsInRs {
-				routeMap[bucket] = rs
+				r.routeMap[bucket] = rs
 				knownBucket++
 			}
 			return nil
@@ -131,8 +130,7 @@ func (r *Router) DiscoveryAllBuckets(ctx context.Context) error {
 		return nil
 	}
 
-	r.routeMap = routeMap // todo: писать сразу
-	r.knownBucketCount = knownBucket
+	r.knownBucketCount.Store(int32(knownBucket))
 
 	return nil
 }
