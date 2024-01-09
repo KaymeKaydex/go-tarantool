@@ -3,6 +3,7 @@ package vshard_router
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -99,7 +100,7 @@ func (r *Router) DiscoveryHandleBuckets(ctx context.Context, rs *Replicaset, buc
 }
 
 func (r *Router) DiscoveryAllBuckets(ctx context.Context) error {
-	knownBucket := 0
+	knownBucket := atomic.Int32{}
 
 	errGr, ctx := errgroup.WithContext(ctx)
 
@@ -122,7 +123,7 @@ func (r *Router) DiscoveryAllBuckets(ctx context.Context) error {
 
 			for _, bucket := range bucketsInRs {
 				r.routeMap[bucket] = rs
-				knownBucket++
+				knownBucket.Add(1)
 			}
 			return nil
 		})
@@ -134,7 +135,7 @@ func (r *Router) DiscoveryAllBuckets(ctx context.Context) error {
 		return nil
 	}
 
-	r.knownBucketCount.Store(int32(knownBucket))
+	r.knownBucketCount.Store(knownBucket.Load())
 
 	return nil
 }
