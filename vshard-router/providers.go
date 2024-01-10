@@ -83,43 +83,49 @@ func (t *TopologyProvider) RemoveInstance(ctx context.Context, rsID, instanceID 
 	return t.r.idToReplicaset[rsID].conn.Remove(instanceID.String())
 }
 
-func (t *TopologyProvider) AddReplicasets(ctx context.Context, replicasets map[ReplicasetInfo][]InstanceInfo) error {
+func (t *TopologyProvider) AddReplicaset(ctx context.Context, rsInfo ReplicasetInfo, instances []InstanceInfo) error {
 	router := t.r
 	cfg := router.cfg
 
+	replicaset := &Replicaset{
+		info: ReplicasetInfo{
+			Name: rsInfo.Name,
+			UUID: rsInfo.UUID,
+		},
+		bucketCount: atomic.Int32{},
+	}
+
+	replicaset.bucketCount.Store(0)
+
+	rsDialers := make(map[string]tarantool.Dialer, len(instances))
+
+	for _, instance := range instances {
+		dialer := tarantool.NetDialer{
+			Address:  instance.Addr,
+			User:     cfg.User,
+			Password: cfg.Password,
+		}
+
+		rsDialers[instance.UUID.String()] = dialer
+	}
+
+	conn, err := pool.Connect(ctx, rsDialers, router.cfg.PoolOpts)
+	if err != nil {
+		return err
+	}
+
+	replicaset.conn = conn
+	router.idToReplicaset[rsInfo.UUID] = replicaset // add when conn is ready
+
+	return nil
+}
+
+func (t *TopologyProvider) AddReplicasets(ctx context.Context, replicasets map[ReplicasetInfo][]InstanceInfo) error {
 	for rsInfo, rsInstances := range replicasets {
-		rsInfo := rsInfo
-		rsInstances := rsInstances
-
-		replicaset := &Replicaset{
-			info: ReplicasetInfo{
-				Name: rsInfo.Name,
-				UUID: rsInfo.UUID,
-			},
-			bucketCount: atomic.Int32{},
-		}
-
-		replicaset.bucketCount.Store(0)
-
-		rsDialers := make(map[string]tarantool.Dialer, len(rsInstances))
-
-		for _, instance := range rsInstances {
-			dialer := tarantool.NetDialer{
-				Address:  instance.Addr,
-				User:     cfg.User,
-				Password: cfg.Password,
-			}
-
-			rsDialers[instance.UUID.String()] = dialer
-		}
-
-		conn, err := pool.Connect(ctx, rsDialers, router.cfg.PoolOpts)
+		err := t.AddReplicaset(ctx, rsInfo, rsInstances)
 		if err != nil {
 			return err
 		}
-
-		replicaset.conn = conn
-		router.idToReplicaset[rsInfo.UUID] = replicaset // add when conn is ready
 	}
 
 	return nil
