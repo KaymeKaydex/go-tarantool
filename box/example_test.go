@@ -98,7 +98,7 @@ func ExampleSchemaUser_Exists() {
 }
 
 func ExampleSchemaUser_Create() {
-	// Connect to Tarantool
+	// Connect to Tarantool.
 	dialer := tarantool.NetDialer{
 		Address:  "127.0.0.1:3013",
 		User:     "test",
