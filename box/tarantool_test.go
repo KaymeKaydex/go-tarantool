@@ -82,7 +82,7 @@ func TestBox_Sugar_Schema_UserCreate(t *testing.T) {
 
 	b := box.New(conn)
 
-	// Create new user
+	// Create new user.
 	err = b.Schema().User().Create(ctx, username, box.UserCreateOptions{Password: password})
 	require.NoError(t, err)
 
