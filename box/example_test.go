@@ -111,10 +111,10 @@ func ExampleSchemaUser_Create() {
 		log.Fatalf("Failed to connect: %s", err)
 	}
 
-	// Create SchemaUser
+	// Create SchemaUser.
 	schemaUser := box.NewSchemaUser(client)
 
-	// Create a new user
+	// Create a new user.
 	username := "new_user"
 	options := box.UserCreateOptions{
 		IfNotExists: true,
